@@ -1,0 +1,620 @@
+package aes
+
+import (
+	"encoding/binary"
+	"errors"
+	"hybrid_encryption/utils"
+	"math"
+	"math/big"
+	"reflect"
+)
+
+// sbox 是AES算法中的S盒，用于字节替代。
+var sbox = [256]byte{
+	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+	0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+	0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+	0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+	0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+	0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+	0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+	0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+	0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+	0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+	0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+	0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+	0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+	0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+	0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+	0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
+}
+
+// inv_sbox 是AES算法中的逆S盒，用于解密时的字节替代。
+var inv_sbox = [256]byte{
+	0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
+	0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
+	0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
+	0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
+	0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
+	0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
+	0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
+	0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
+	0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
+	0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
+	0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
+	0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
+	0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+	0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
+	0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
+	0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d,
+}
+
+// rcon 是AES算法中的轮常数。
+var rcon = [10]uint32{
+	0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000,
+	0x20000000, 0x40000000, 0x80000000, 0x1b000000, 0x36000000,
+}
+
+// AES 结构表示AES算法的状态。
+type AES struct {
+	nr        int      // number of rounds
+	nk        int      // number of words in the key
+	nb        int      // number of words in a block
+	len       int      // length(byte) of block
+	key       []byte   // key
+	roundKeys []uint32 // round keys generated from key.
+}
+
+// NewAES 创建一个AES实例并返回。
+//
+// key: 根据密钥长度选择以下算法：
+//
+// 16 字节 = AES-128
+//
+// 24 字节 = AES-192
+//
+// 32 字节 = AES-256
+func NewAES(key []byte) (*AES, error) {
+	var nk, nr int
+	switch len(key) {
+	case 16:
+		nk = 4
+		nr = 10
+	case 24:
+		nk = 6
+		nr = 12
+	case 32:
+		nk = 8
+		nr = 14
+	default:
+		return nil, errors.New("invalid key length")
+	}
+	aes := AES{
+		nr:  nr,
+		nk:  nk,
+		nb:  4,
+		len: 16,
+		key: key,
+	}
+	aes.roundKeys = aes.keyExpansion()
+	return &aes, nil
+}
+
+// keyExpansion 返回呈现轮密钥的 uint32 切片
+// （密钥为 4 个 uint32）进行加密。 轮键数量
+// 由加密类型决定。 例如11轮
+// AES-128 中的密钥。
+func (a *AES) keyExpansion() []uint32 {
+	var w []uint32
+	for i := 0; i < a.nk; i++ { // little-endian or big-endian matters.
+		w = append(w, binary.BigEndian.Uint32(a.key[4*i:4*i+4]))
+	}
+	for i := a.nk; i < a.nb*(a.nr+1); i++ {
+		tempW := make([]byte, 4)
+		binary.BigEndian.PutUint32(tempW, w[i-1])
+		if i%a.nk == 0 {
+			rotWord(tempW)
+			a.subBytes(tempW)
+			tempRcon := make([]byte, 4)
+			binary.BigEndian.PutUint32(tempRcon, rcon[i/a.nk-1])
+			Xor(tempW, tempRcon)
+		} else if a.nk > 6 && i%a.nk == 4 {
+			a.subBytes(tempW)
+		}
+		w = append(w, w[i-a.nk]^binary.BigEndian.Uint32(tempW))
+	}
+	// mute debugging
+	//utils.DumpWords("keyExpansion:", w)
+	return w
+}
+
+// EncryptECB 返回 ECB 模式加密的密码。
+func (a *AES) EncryptECB(in []byte, pad utils.PaddingFunc) []byte {
+	in = pad(in, a.len)
+
+	for i := 0; i < len(in); i += a.len {
+		a.encryptBlock(in[i:i+a.len], a.roundKeys)
+	}
+
+	//fmt.Printf("aes_impl-%d ECB encrypted cipher:", a.nk*32)
+	//utils.DumpBytes("", in)
+	return in
+}
+
+// DecryptECB 返回 ECB 模式解密的明文。
+func (a *AES) DecryptECB(in []byte, unpad utils.UnpaddingFunc) []byte {
+	for i := 0; i < len(in); i += a.len {
+		a.decryptBlock(in[i:i+a.len], a.roundKeys)
+	}
+
+	in = unpad(in)
+	//fmt.Printf("aes_impl-%d ECB decrypted plaintext:", a.nk*32)
+	//utils.DumpBytes("", in)
+	return in
+}
+
+// EncryptCBC 返回 CBC 模式加密的密码。
+// iv 必须是 128 位。
+func (a *AES) EncryptCBC(in []byte, iv []byte, pad utils.PaddingFunc) ([]byte, map[int][]byte, map[int][]byte, map[int][]byte, map[int][]byte) {
+	roundStates := make(map[int][]byte)
+	roundStates2 := make(map[int][]byte)
+	roundStates3 := make(map[int][]byte)
+	roundStates4 := make(map[int][]byte)
+	in = pad(in, a.len)
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	for i := 0; i < len(in); i += a.len {
+		Xor(in[i:i+a.len], ivTmp)
+		roundStates, roundStates2, roundStates3, roundStates4 = a.encryptBlock(in[i:i+a.len], a.roundKeys)
+		copy(ivTmp, in[i:i+a.len])
+	}
+
+	//fmt.Printf("aes_impl-%d CBC encrypted cipher:", a.nk*32)
+	//utils.DumpBytes("", in)
+	return in, roundStates, roundStates2, roundStates3, roundStates4
+}
+
+// DecryptCBC 返回 CBC 模式解密的明文。
+// iv 必须是 128 位。
+func (a *AES) DecryptCBC(in []byte, iv []byte, unpad utils.UnpaddingFunc) []byte {
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	reg := make([]byte, a.len)
+
+	for i := 0; i < len(in); i += a.len {
+		copy(reg, in[i:i+a.len])
+		a.decryptBlock(in[i:i+a.len], a.roundKeys)
+		Xor(in[i:i+a.len], ivTmp)
+		copy(ivTmp, reg)
+	}
+
+	in = unpad(in)
+	//fmt.Printf("aes_impl-%d CBC decrypted plaintext:", a.nk*32)
+	//utils.DumpBytes("", in)
+	return in
+}
+
+// EncryptCFB 加密每 s 个字节的明文，其中
+// s至少 1 且不超过 128。
+// iv 必须是 128 位。
+func (a *AES) EncryptCFB(in []byte, iv []byte, s int) []byte {
+	ivTmp := make([]byte, a.len)
+	copy(ivTmp, iv)
+	plainTmp := make([]byte, len(in))
+	copy(plainTmp, in)
+
+	i := 0
+	for ; i < len(plainTmp)-s; i += s {
+		a.encryptBlock(ivTmp, a.roundKeys)
+		Xor(plainTmp[i:i+s], ivTmp[0:s])
+		ivTmp = append(ivTmp[s:], plainTmp[i:i+s]...)
+	}
+	a.encryptBlock(ivTmp, a.roundKeys)
+	Xor(plainTmp[i:], ivTmp[0:s]) // process on the last bytes (less than s)
+
+	//fmt.Printf("aes_impl-%d CFB with %d-bytes shift encrypted cipher:", a.nk*32, s)
+	//utils.DumpBytes("", plainTmp)
+	return plainTmp
+}
+
+// DecryptCFB 解密每 s 个字节的密文，其中
+// s至少 1 且不超过 128。
+// iv 必须是 128 位。
+func (a *AES) DecryptCFB(in []byte, iv []byte, s int) []byte {
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	cipherTmp := make([]byte, len(in))
+	copy(cipherTmp, in)
+
+	i := 0
+	for ; i < len(in)-s; i += s {
+		a.encryptBlock(ivTmp, a.roundKeys)
+		Xor(in[i:i+s], ivTmp[0:s])
+		ivTmp = append(ivTmp[s:], cipherTmp[i:i+s]...)
+	}
+	a.encryptBlock(ivTmp, a.roundKeys)
+	Xor(in[i:], ivTmp[0:s])
+
+	//fmt.Printf("aes_impl-%d CFB with %d-bytes shift decrypted plaintext:", a.nk*32, s)
+	//utils.DumpBytes("", in)
+	return in
+}
+
+// EncryptOFB 返回 OFB 模式加密的密文。
+// iv 必须是 128 位。
+func (a *AES) EncryptOFB(in []byte, iv []byte) []byte {
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	plainTmp := make([]byte, len(in))
+	copy(plainTmp, in)
+
+	i := 0
+	for ; i < len(plainTmp)-a.len; i += a.len {
+		a.encryptBlock(ivTmp, a.roundKeys)
+		Xor(plainTmp[i:i+a.len], ivTmp)
+	}
+	a.encryptBlock(ivTmp, a.roundKeys)
+	Xor(plainTmp[i:], ivTmp)
+
+	//fmt.Printf("aes_impl-%d OFB encrypted cipher:", a.nk*32)
+	//utils.DumpBytes("", plainTmp)
+	return plainTmp
+}
+
+// DecryptOFB 返回 OFB 模式解密的明文。
+// iv 必须是 128 位。
+func (a *AES) DecryptOFB(in []byte, iv []byte) []byte {
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	cipherTmp := make([]byte, len(in))
+	copy(cipherTmp, in)
+
+	i := 0
+	for ; i < len(cipherTmp)-a.len; i += a.len {
+		a.encryptBlock(ivTmp, a.roundKeys)
+		Xor(cipherTmp[i:i+a.len], ivTmp)
+	}
+	a.encryptBlock(ivTmp, a.roundKeys)
+	Xor(cipherTmp[i:], ivTmp)
+
+	//fmt.Printf("aes_impl-%d OFB decrypted plaintext:", a.nk*32)
+	//utils.DumpBytes("", cipherTmp)
+	return cipherTmp
+}
+
+// EncryptCTR 返回CTR模式加密的密文。
+// iv 必须是 128 位。
+func (a *AES) EncryptCTR(in []byte, iv []byte) []byte {
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	plainTmp := make([]byte, len(in))
+	copy(plainTmp, in)
+	ivNumber := big.NewInt(0).SetBytes(iv)
+	one := big.NewInt(1)
+
+	i := 0
+	for ; i < len(plainTmp)-a.len; i += a.len {
+		a.encryptBlock(ivTmp, a.roundKeys)
+		Xor(plainTmp[i:i+a.len], ivTmp)
+		ivNumber.Add(ivNumber, one).FillBytes(ivTmp)
+	}
+	a.encryptBlock(ivTmp, a.roundKeys)
+	Xor(plainTmp[i:], ivTmp)
+
+	//fmt.Printf("aes_impl-%d CTR encrypted ciphertext:", a.nk*32)
+	//utils.DumpBytes("", plainTmp)
+	return plainTmp
+}
+
+// DecryptCTR 返回CTR模式解密的明文。
+// iv 必须是 128 位。
+// 与EncryptCTR完全相同。
+func (a *AES) DecryptCTR(in []byte, iv []byte) []byte {
+	ivTmp := make([]byte, len(iv))
+	copy(ivTmp, iv)
+	cipherTmp := make([]byte, len(in))
+	copy(cipherTmp, in)
+	ivNumber := big.NewInt(0).SetBytes(iv)
+	one := big.NewInt(1)
+
+	i := 0
+	for ; i < len(cipherTmp)-a.len; i += a.len {
+		a.encryptBlock(ivTmp, a.roundKeys)
+		Xor(cipherTmp[i:i+a.len], ivTmp)
+		ivNumber.Add(ivNumber, one).FillBytes(ivTmp)
+	}
+	a.encryptBlock(ivTmp, a.roundKeys)
+	Xor(cipherTmp[i:], ivTmp)
+
+	//fmt.Printf("aes_impl-%d CTR decrypted ciphertext:", a.nk*32)
+	//utils.DumpBytes("", cipherTmp)
+	return cipherTmp
+}
+
+// EncryptGCM 返回 GCM 模式加密的密文和标签。
+func (a *AES) EncryptGCM(in []byte, iv []byte, auth []byte, tagLen int) ([]byte, []byte) {
+	H := make([]byte, 16)
+	a.encryptBlock(H, a.roundKeys)
+	var J0 []byte
+
+	if len(iv) == 12 {
+		J0 = append(iv, []byte{0x00, 0x00, 0x00, 0x01}...)
+	} else {
+		sPlus64Zeros := make([]byte, 16*int(math.Ceil(float64(8*len(iv))/128.0))-len(iv)+8)
+		lenIV := make([]byte, 8)
+		big.NewInt(int64(8 * len(iv))).FillBytes(lenIV)
+		J0 = gHash(append(append(iv, sPlus64Zeros...), lenIV...), H)
+	}
+	J0Tmp := make([]byte, len(J0))
+	copy(J0Tmp, J0)
+
+	cipher := a.EncryptGCTR(in, inc32(J0))
+	vZeros := make([]byte, 16*int(math.Ceil(float64(8*len(auth))/128.0))-len(auth))
+	uZeros := make([]byte, 16*int(math.Ceil(float64(8*len(cipher))/128.0))-len(cipher))
+	lenA := make([]byte, 8)
+	lenC := make([]byte, 8)
+	big.NewInt(int64(8 * len(auth))).FillBytes(lenA)
+	big.NewInt(int64(8 * len(cipher))).FillBytes(lenC)
+	S := gHash(append(append(append(append(append(auth, vZeros...), cipher...), uZeros...), lenA...), lenC...), H)
+	T := a.EncryptGCTR(S, J0Tmp)
+	//fmt.Printf("aes_impl-%d GCM encrypted ciphertext:", a.nk*32)
+	//utils.DumpBytes("", cipher)
+	//utils.DumpBytes("tag:", T[:tagLen])
+	return cipher, T[:tagLen]
+}
+
+// DecryptGCM 返回 GCM 模式解密的明文或
+// 如果身份验证失败，则返回 nil。
+func (a *AES) DecryptGCM(in []byte, iv []byte, auth []byte, tag []byte) []byte {
+	H := make([]byte, 16)
+	a.encryptBlock(H, a.roundKeys)
+	var J0 []byte
+
+	if len(iv) == 12 {
+		J0 = append(iv, []byte{0x00, 0x00, 0x00, 0x01}...)
+	} else {
+		sPlus64Zeros := make([]byte, 16*int(math.Ceil(float64(8*len(iv))/128.0))-len(iv)+8)
+		lenIV := make([]byte, 8)
+		big.NewInt(int64(8 * len(iv))).FillBytes(lenIV)
+		J0 = gHash(append(append(iv, sPlus64Zeros...), lenIV...), H)
+	}
+	J0Tmp := make([]byte, len(J0))
+	copy(J0Tmp, J0)
+
+	ciphertext := make([]byte, len(in))
+	copy(ciphertext, in)
+	plaintext := a.EncryptGCTR(in, inc32(J0))
+	vZeros := make([]byte, 16*int(math.Ceil(float64(8*len(auth))/128.0))-len(auth))
+	uZeros := make([]byte, 16*int(math.Ceil(float64(8*len(plaintext))/128.0))-len(plaintext))
+	lenA := make([]byte, 8)
+	lenC := make([]byte, 8)
+	big.NewInt(int64(8 * len(auth))).FillBytes(lenA)
+	big.NewInt(int64(8 * len(plaintext))).FillBytes(lenC)
+	S := gHash(append(append(append(append(append(auth, vZeros...), ciphertext...), uZeros...), lenA...), lenC...), H)
+	T := a.EncryptGCTR(S, J0Tmp)
+	//fmt.Printf("aes_impl-%d GCM decrypted plaintext:", a.nk*32)
+	if reflect.DeepEqual(T[:len(tag)], tag) {
+		//utils.DumpBytes("", plaintext)
+		return plaintext
+	}
+	//utils.DumpBytes("\nFailed", nil)
+	return nil
+}
+
+// gHash 使用子键 H 对 X 进行哈希处理，并返回一个新切片。
+func gHash(X []byte, H []byte) []byte {
+	y := make([]byte, 16)
+
+	for i := 0; i < len(X); i += 16 {
+		Xor(y, X[i:i+16])
+		mulBlock(y, H)
+	}
+	return y
+}
+
+// EncryptGCTR 使用初始计数器块 ICB 加密明文。
+func (a *AES) EncryptGCTR(in []byte, ICB []byte) []byte {
+	if in == nil {
+		return in
+	}
+
+	plainTmp := make([]byte, len(in))
+	copy(plainTmp, in)
+	xorBlock := make([]byte, 16*int(math.Ceil(float64(len(plainTmp))/16.0)))
+	// The variable cbi(i 'th counter block) is used to preserve the state.
+	cbi := make([]byte, 16)
+	cbi1 := make([]byte, 16)
+	copy(cbi, ICB)
+	copy(cbi1, ICB)
+	for i := 0; i < len(plainTmp); i += a.len {
+		a.encryptBlock(cbi1, a.roundKeys)
+		copy(xorBlock[i:i+a.len], cbi1)
+		cbi = inc32(cbi)
+		copy(cbi1, cbi)
+	}
+
+	Xor(plainTmp, xorBlock)
+	return plainTmp
+}
+
+// subBytes AES 加密操作。
+func (a *AES) subBytes(state []byte) {
+	for i, v := range state {
+		state[i] = sbox[v]
+	}
+}
+
+// invSubBytes AES 解密操作。
+func (a *AES) invSubBytes(state []byte) {
+	for i, v := range state {
+		state[i] = inv_sbox[v]
+	}
+}
+
+func (a *AES) shiftRow(in []byte, i int, n int) {
+	in[i], in[i+4*1], in[i+4*2], in[i+4*3] = in[i+4*(n%4)], in[i+4*((n+1)%4)], in[i+4*((n+2)%4)], in[i+4*((n+3)%4)]
+}
+
+// rotWord 向左旋转 4 字节切片。 那是<< 8。
+func rotWord(in []byte) {
+	in[0], in[1], in[2], in[3] = in[1], in[2], in[3], in[0]
+}
+
+// shiftRows AES 加密操作。
+func (a *AES) shiftRows(state []byte) {
+	a.shiftRow(state, 1, 1)
+	a.shiftRow(state, 2, 2)
+	a.shiftRow(state, 3, 3)
+}
+
+// invShiftRows AES 解密操作。
+func (a *AES) invShiftRows(state []byte) {
+	a.shiftRow(state, 1, 3)
+	a.shiftRow(state, 2, 2)
+	a.shiftRow(state, 3, 1)
+}
+
+// xtime 返回 GF(2^8) 中乘以 x 的结果。
+func xtime(in byte) byte {
+	return (in << 1) ^ (((in >> 7) & 1) * 0x1b)
+}
+
+// xtimes 返回 GF(2^8) 中乘以 x^ts 的结果。
+func xtimes(in byte, ts int) byte {
+	for ts > 0 {
+		in = xtime(in)
+		ts--
+	}
+	return in
+}
+
+// mulByte 返回 GF(2^8) 中的字节 x 乘以字节 y。
+func mulByte(x byte, y byte) byte {
+	return (((y >> 0) & 0x01) * xtimes(x, 0)) ^
+		(((y >> 1) & 0x01) * xtimes(x, 1)) ^
+		(((y >> 2) & 0x01) * xtimes(x, 2)) ^
+		(((y >> 3) & 0x01) * xtimes(x, 3)) ^
+		(((y >> 4) & 0x01) * xtimes(x, 4)) ^
+		(((y >> 5) & 0x01) * xtimes(x, 5)) ^
+		(((y >> 6) & 0x01) * xtimes(x, 6)) ^
+		(((y >> 7) & 0x01) * xtimes(x, 7))
+}
+
+// mulWord 为函数提供一列组合
+// mixColumns 和 invMixColumns。 其实就是一个矩阵乘法。
+func mulWord(x []byte, y []byte) {
+	tmp := make([]byte, 4)
+	copy(tmp, x)
+
+	x[0] = mulByte(tmp[0], y[3]) ^ mulByte(tmp[1], y[0]) ^ mulByte(tmp[2], y[1]) ^ mulByte(tmp[3], y[2])
+	x[1] = mulByte(tmp[0], y[2]) ^ mulByte(tmp[1], y[3]) ^ mulByte(tmp[2], y[0]) ^ mulByte(tmp[3], y[1])
+	x[2] = mulByte(tmp[0], y[1]) ^ mulByte(tmp[1], y[2]) ^ mulByte(tmp[2], y[3]) ^ mulByte(tmp[3], y[0])
+	x[3] = mulByte(tmp[0], y[0]) ^ mulByte(tmp[1], y[1]) ^ mulByte(tmp[2], y[2]) ^ mulByte(tmp[3], y[3])
+}
+
+// mixColumns AES 加密操作
+func (a *AES) mixColumns(state []byte) {
+	s := []byte{0x03, 0x01, 0x01, 0x02}
+	for i := 0; i < len(state); i += 4 {
+		mulWord(state[i:i+4], s)
+	}
+}
+
+// invMixColumns AES 解密操作
+func (a *AES) invMixColumns(state []byte) {
+	s := []byte{0x0b, 0x0d, 0x09, 0x0e}
+	for i := 0; i < len(state); i += 4 {
+		mulWord(state[i:i+4], s)
+	}
+}
+
+// Xor 将 y 异或应用于 x。 请确保 len(y) >= len(x)。
+func Xor(x []byte, y []byte) {
+	if len(x) <= len(y) {
+		for i := 0; i < len(x); i++ {
+			x[i] = x[i] ^ y[i]
+		}
+	}
+}
+
+// addRoundKey AES 中的操作。
+func (a *AES) addRoundKey(state []byte, w []uint32) {
+	tmp := make([]byte, a.len)
+	for i := 0; i < len(w); i += 1 {
+		binary.BigEndian.PutUint32(tmp[4*i:4*i+4], w[i])
+	}
+	Xor(state, tmp)
+}
+
+// encryptBlock 加密明文中的一个块(这个方法接收两个参数：一个是state，它是待加密的明文块（是一个字节切片）；另一个是roundKeys，它是每一轮加密用的轮密钥（是一个32位无符号整数切片）。)
+func (a *AES) encryptBlock(state []byte, roundKeys []uint32) (map[int][]byte, map[int][]byte, map[int][]byte, map[int][]byte) {
+	roundStates := make(map[int][]byte)
+	roundStates2 := make(map[int][]byte)
+	roundStates3 := make(map[int][]byte)
+	roundStates4 := make(map[int][]byte)
+	// 在加密的第一轮，使用第一个4个轮密钥将明文块进行扩展置换。
+	a.addRoundKey(state, roundKeys[0:4])
+	// 进行n-1轮加密操作
+	for round := 1; round < a.nr; round++ {
+		// S盒字节替换操作
+		a.subBytes(state)
+		roundStates[round] = append([]byte(nil), state...)
+		// 行移位操作
+		a.shiftRows(state)
+		roundStates2[round] = append([]byte(nil), state...)
+		// 列混淆操作
+		a.mixColumns(state)
+		roundStates3[round] = append([]byte(nil), state...)
+		// 使用特定的轮密钥将state中的内容与一个固定的矩阵进行异或操作
+		a.addRoundKey(state, roundKeys[4*round:4*round+4])
+		roundStates4[round] = append([]byte(nil), state...)
+	}
+	// 最后一轮操作
+	a.subBytes(state)
+	a.shiftRows(state)
+	a.addRoundKey(state, roundKeys[a.nr*4:a.nr*4+4])
+	return roundStates, roundStates2, roundStates3, roundStates4
+}
+
+// decryptBlock 解密密文中的一个块。
+func (a *AES) decryptBlock(state []byte, roundKeys []uint32) {
+	a.addRoundKey(state, roundKeys[a.nr*4:a.nr*4+4])
+	for round := a.nr - 1; round > 0; round-- {
+		a.invShiftRows(state)
+		a.invSubBytes(state)
+		a.addRoundKey(state, roundKeys[4*round:4*round+4])
+		a.invMixColumns(state)
+	}
+	a.invShiftRows(state)
+	a.invSubBytes(state)
+	a.addRoundKey(state, roundKeys[0:4])
+}
+
+// inc 递增位串 X 的最右边 32 位，
+// 它返回X。
+func inc32(X []byte) []byte {
+	lsb32 := binary.BigEndian.Uint32(X[len(X)-4:]) + 1
+	binary.BigEndian.PutUint32(X[len(X)-4:], lsb32)
+	return X
+}
+
+// mulBlock 在 GCM 模式下对 x 进行乘法运算。
+func mulBlock(x []byte, y []byte) {
+	tmp := big.NewInt(0).SetBytes([]byte{0xe1})
+
+	R := tmp.Lsh(tmp, 120)
+	X := big.NewInt(0).SetBytes(x)
+	Z := big.NewInt(0)
+	V := big.NewInt(0).SetBytes(y)
+	for i := 0; i < 128; i++ {
+		if X.Bit(127-i) == 1 {
+			Z.Xor(Z, V)
+		}
+		if V.Bit(0) == 0 {
+			V.Rsh(V, 1)
+		} else {
+			V.Xor(V.Rsh(V, 1), R)
+		}
+	}
+	Z.FillBytes(x)
+}

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encryption and Decryption</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .container {
+            display: flex;
+            justify-content: space-around;
+            width: 80%; /* Adjust the width as needed */
+        }
+
+        .encryption-container,
+        .decryption-container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 45%; /* Adjust the width as needed */
+        }
+
+        h2 {
+            color: #333;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none;
+        }
+
+        button {
+            background-color: #4caf50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        form {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-upload-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .file-upload-label {
+            background-color: #4caf50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .file-upload-label:hover {
+            background-color: #45a049;
+        }
+
+        .file-name {
+            margin-bottom: 10px;
+        }
+
+        .operation-label,
+        #operation {
+            margin-bottom: 10px;
+        }
+
+        .operation-dropdown {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        input[type="submit"] {
+            background-color: #4caf50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+        table {
+            width: 100%;
+            margin-bottom: 20px;
+            border-spacing: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: #fff;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #4caf50;
+            color: white;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        tbody tr:hover {
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+<h1>RSA+AES</h1>
+<input type="checkbox" id="autoEncryptDecryptCheckbox" onchange="toggleAutoEncryptDecrypt()"> Auto Encrypt/Decrypt
+<div class="container">
+    <div class="encryption-container">
+        <h2>Encrypt</h2>
+        <textarea id="plaintext" rows="8" cols="25" placeholder="Enter text to encrypt"></textarea>
+        <button onclick="encrypt()">Encrypt</button>
+    </div>
+
+    <div class="decryption-container">
+        <h2>Decrypt</h2>
+        <textarea id="ciphertext" rows="8" cols="25" placeholder="Enter text to decrypt"></textarea>
+        <button onclick="decrypt()">Decrypt</button>
+    </div>
+</div>
+<div style="display: flex; justify-content: space-around; margin-top: 20px;">
+<div>
+    <table border="1">
+        <thead>
+        <tr>
+            <th>轮数</th>
+            <th>S盒字节替换</th>
+        </tr>
+        </thead>
+        <tbody id="roundStateTableBody"></tbody>
+    </table>
+</div>
+<div>
+    <table border="2">
+        <thead>
+        <tr>
+            <th>轮数</th>
+            <th>行移位</th>
+        </tr>
+        </thead>
+        <tbody id="roundStateTableBody2"></tbody>
+    </table>
+</div>
+<div>
+    <table border="3">
+        <thead>
+        <tr>
+            <th>轮数</th>
+            <th>列混淆</th>
+        </tr>
+        </thead>
+        <tbody id="roundStateTableBody3"></tbody>
+    </table>
+</div>
+    <div>
+        <table border="4">
+            <thead>
+            <tr>
+                <th>轮数</th>
+                <th>State与轮密钥Xor</th>
+            </tr>
+            </thead>
+            <tbody id="roundStateTableBody4"></tbody>
+        </table>
+    </div>
+</div>
+<script>
+    function encrypt() {
+        var plaintext = document.getElementById("plaintext").value;
+        fetch("/encrypt", {
+            method: "POST",
+            body: new URLSearchParams({ plaintext: plaintext }),
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        })
+            .then(response => response.json()) // Assuming the response is JSON
+            .then(data => {
+                // Assuming data is an object with a 'ciphertext' property
+                document.getElementById("ciphertext").value = JSON.stringify(data.ciphertext);
+                displayRoundData(data.roundState)
+                displayRoundData2(data.roundState2)
+                displayRoundData3(data.roundState3)
+                displayRoundData4(data.roundState4)
+                // document.getElementById("ciphertext").value = JSON.stringify(data);
+            });
+    }
+
+    function displayRoundData(roundState) {
+        var tableBody = document.getElementById("roundStateTableBody");
+        tableBody.innerHTML = "";
+
+        for (var round in roundState) {
+            if (roundState.hasOwnProperty(round)) {
+                var row = tableBody.insertRow();
+                var cell1 = row.insertCell(0);
+                var cell2 = row.insertCell(1);
+
+                cell1.innerHTML = round;
+                cell2.innerHTML = roundState[round];
+            }
+        }
+    }
+    function displayRoundData2(roundState) {
+        var tableBody = document.getElementById("roundStateTableBody2");
+        tableBody.innerHTML = "";
+
+        for (var round in roundState) {
+            if (roundState.hasOwnProperty(round)) {
+                var row = tableBody.insertRow();
+                var cell1 = row.insertCell(0);
+                var cell2 = row.insertCell(1);
+
+                cell1.innerHTML = round;
+                cell2.innerHTML = roundState[round];
+            }
+        }
+    }
+    function displayRoundData3(roundState) {
+        var tableBody = document.getElementById("roundStateTableBody3");
+        tableBody.innerHTML = "";
+
+        for (var round in roundState) {
+            if (roundState.hasOwnProperty(round)) {
+                var row = tableBody.insertRow();
+                var cell1 = row.insertCell(0);
+                var cell2 = row.insertCell(1);
+
+                cell1.innerHTML = round;
+                cell2.innerHTML = roundState[round];
+            }
+        }
+    }
+
+    function displayRoundData4(roundState) {
+        var tableBody = document.getElementById("roundStateTableBody4");
+        tableBody.innerHTML = "";
+
+        for (var round in roundState) {
+            if (roundState.hasOwnProperty(round)) {
+                var row = tableBody.insertRow();
+                var cell1 = row.insertCell(0);
+                var cell2 = row.insertCell(1);
+
+                cell1.innerHTML = round;
+                cell2.innerHTML = roundState[round];
+            }
+        }
+    }
+
+    function decrypt() {
+        var ciphertext = document.getElementById("ciphertext").value;
+        fetch("/decrypt", {
+            method: "POST",
+            body: new URLSearchParams({ ciphertext: ciphertext }),
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        })
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById("plaintext").value = data;
+            });
+    }
+
+    var autoEncryptDecryptCheckbox = document.getElementById("autoEncryptDecryptCheckbox");
+    var encryptButton = document.querySelector('.encryption-container button');
+    var decryptButton = document.querySelector('.decryption-container button');
+
+    document.getElementById("plaintext").addEventListener("input", function () {
+        if (autoEncryptDecryptCheckbox.checked && this.value.trim() !== "") {
+            encryptButton.click();
+        }
+    });
+
+    document.getElementById("ciphertext").addEventListener("input", function () {
+        if (autoEncryptDecryptCheckbox.checked && this.value.trim() !== "") {
+            decryptButton.click();
+        }
+    });
+
+    function toggleAutoEncryptDecrypt() {
+        if (autoEncryptDecryptCheckbox.checked) {
+            if (document.getElementById("plaintext").value.trim() !== "") {
+                encryptButton.click();
+            } else if (document.getElementById("ciphertext").value.trim() !== "") {
+                decryptButton.click();
+            }
+        }
+    }
+</script>
+
+<form action="/detailFile" method="post" enctype="multipart/form-data">
+    <div class="file-upload-wrapper">
+        <label for="file" class="file-upload-label">Choose File</label>
+        <input type="file" id="file" name="file" multiple onchange="displayFileName()" />
+        <div id="file-name" class="file-name"></div>
+    </div>
+
+    <label for="operation" class="operation-label">Select operation:</label>
+    <select id="operation" name="operation" class="operation-dropdown">
+        <option value="encrypt">Encrypt</option>
+        <option value="decrypt">Decrypt</option>
+    </select>
+
+    <input type="submit" value="Submit" />
+</form>
+
+</body>
+</html>
